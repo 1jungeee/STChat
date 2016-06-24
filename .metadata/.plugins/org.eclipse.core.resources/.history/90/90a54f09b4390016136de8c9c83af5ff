@@ -1,0 +1,32 @@
+package SoTongClient;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+
+public class SoTongListenThread extends Thread {
+	private Socket ST_C_Socket = null;
+	private static BufferedReader ST_C_BR = null;
+	private SoTongController ST_Controller;
+
+	public SoTongListenThread(Socket ST_C_Socket) throws IOException{
+		this.ST_C_Socket = ST_C_Socket;
+		ST_C_BR = new BufferedReader(new InputStreamReader(this.ST_C_Socket.getInputStream()));  
+		ST_Controller = new SoTongController();
+	}
+	
+	public void run(){
+		try{
+			String line = null;
+			while((line = ST_C_BR.readLine()) != null){
+				ST_Controller.controllerRes(line);
+			}
+		}catch(Exception ex){
+			
+		}finally{
+			
+		}
+	}
+}

@@ -1,0 +1,390 @@
+package SoTongDB;
+
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Date;
+
+public class SoTongDAO {
+	private static final String DRIVER = "oracle.jdbc.driver.OracleDriver";
+    private static final String URL = "jdbc:oracle:thin:@127.0.0.1:1521:orcl";
+    private static final String USER = "scott";
+    private static final String PASS = "1234";
+ 
+    public Connection getConn() {
+        Connection con = null;
+        try {
+            Class.forName(DRIVER);
+            con = DriverManager.getConnection(URL, USER, PASS);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return con;
+    } 
+    
+    public String getTime() {
+		Date time = new java.util.Date();;
+    	return String.valueOf(time.getTime());
+    }
+    
+	//[회원가입] Join
+    public String Join(String userId, String userPwd) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        int result = 0;
+        try {
+            con = getConn();
+            String sql = "insert into ST_Member"
+                    + "(ST_Member_ID,ST_Member_PWD,ST_MEMBER_TIME) "
+                    + "values(?,?,?)";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, userId);
+            ps.setString(2, userPwd);
+            ps.setString(3, getTime());
+            result = ps.executeUpdate();
+            if(result != 1){ //아이디가 중복 될 경우
+            	return "22|3|"+userId;
+            }else{ //회원가입에 성공했을 경우
+            	return "22|1|"+userId;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+		return "22|2|"+userId;
+    } 
+    
+    
+    //[로그인] Login
+    public String Login(String id, String pwd) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        String userId = null;
+        String userTime = null;
+        try {
+            con = getConn();
+            String sql = "select * from ST_MEMBER where ST_Member_ID=?";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, id);
+            rs = ps.executeQuery();
+            if (rs.next()) { //아이디가 존재할 경우
+            	if(rs.getString("ST_Member_PWD").equals(pwd)){ //비밀번호가 일치할 경우
+                    userId = rs.getString(1);
+                    //블랙리스트 체크
+                    if(BlackListCheck(userId)==1){ //해당 아이디가 블랙리스트일 경우
+                    	return "24|5|"+userId;
+                    }else{ //블랙리스트가 아닐 경우
+                    	//최종 로그인 시간으로 부터 경과된 시간(단위:분)
+                        int totalSec = Integer.parseInt(String.valueOf(Long.valueOf(getTime().substring(0, 10)) - Long.valueOf(rs.getString(3).substring(0, 10)))); 
+                		int day = totalSec / (60 * 60 * 24);
+                		int hour = (totalSec - day * 60 * 60 * 24) / (60 * 60); 
+                		int minute = (totalSec - day * 60 * 60 * 24 - hour * 3600) / 60; 
+                		int second = totalSec % 60;
+                		userTime = day + "일 " + hour + "시간 " + minute + "분 " + second +"초 ";
+                        //최종 로그인 시간 업데이트 함수 호출
+                        LoginTimeUpdate(id);
+                    }
+            		return "24|1|"+userId+"|"+userTime;
+            	}else{ //비밀번호가 불일치할 경우
+            		return "24|4|"+rs.getString(1);
+            	}
+            }else{ //아이디가 없을 경우
+            	return "24|3|"+id;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (rs != null) {try {rs.close();} catch (SQLException e2) {e2.printStackTrace();}
+            }
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+        return "24|2|"+id+"|";
+    }
+    
+    
+    //[최종 로그인 시간 업데이트] LoginTime Update
+    public void LoginTimeUpdate(String id) throws ClassNotFoundException, SQLException {
+    	Class.forName("oracle.jdbc.driver.OracleDriver");
+    	Connection con = DriverManager.getConnection(URL, USER, PASS);
+    	Statement stmt = con.createStatement();
+    	int result = 0;
+    	
+        try {
+        	result = stmt.executeUpdate("update st_member set ST_MEMBER_TIME="+getTime()+" where st_member_id='"+id+"'");
+        	System.out.println("[S-ST_Login_Req2]: 로그인 처리를 완료하고 최종 로그인 시간을 업데이트합니다. 업데이트 된 최종 로그인 시간: "+getTime());
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (stmt != null) {
+                try {stmt.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+    }
+    
+
+    //[메일쓰기] WriteMail
+    public String WriteMail(String DesAddress, String SrcAddress, String Title, String Content) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        int result = 0;
+        try {
+            con = getConn();
+            String sql = "insert into ST_EMAIL"
+                    + "(ST_EMAIL_INDEX, ST_EMAIL_DES, ST_EMAIL_SRC, ST_EMAIL_MSG, ST_EMAIL_TITLE) "
+                    + "values(ST_EMAIL_SEQ.nextval,?,?,?,?)";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, DesAddress);
+            ps.setString(2, SrcAddress);
+            ps.setString(3, Content);
+            ps.setString(4, Title);
+            result = ps.executeUpdate();
+            if(result != 1){ //실패했을경우
+            	return "56|2|"+DesAddress+"|"+SrcAddress+"|"+Title+"|"+Content;
+            }else{ //회원가입에 성공했을 경우
+            	return "56|1|"+DesAddress+"|"+SrcAddress+"|"+Title+"|"+Content;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+		return "56|2|"+DesAddress+"|"+SrcAddress+"|"+Title+"|"+Content;
+    } 
+    
+    
+    //[메일목록] MailList
+    public String MailList(String DesAddress) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        String temp = ""; //메일 목록을 담을 변수
+        int result = 0;
+        try {
+            con = getConn();
+            String sql = "select * from ST_EMAIL where ST_EMAIL_DES=?";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, DesAddress);
+            rs = ps.executeQuery();
+            while (rs.next()) { //메일이 존재할 경우
+            	temp += "["+rs.getString("ST_EMAIL_TITLE")+"]";
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+		return "52|"+DesAddress+"|"+temp;
+    } 
+    
+    
+    //[메일읽기] ReamMail
+    public String ReadMail(String DesAddress, String Title) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        String temp = ""; //읽을 메일 정보를 담을 변수
+        int result = 0;
+        try {
+            con = getConn();
+            String sql = "select * from ST_EMAIL where ST_EMAIL_DES=? and ST_EMAIL_TITLE=?";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, DesAddress);
+            ps.setString(2, Title);
+            rs = ps.executeQuery();
+            if (rs.next()) { //메일이 존재할 경우
+            	temp = rs.getString("ST_EMAIL_MSG");
+            	return "54|1|"+DesAddress+"|"+Title+"|"+temp;
+            }else{ //메일이 존재하지 않을 경우
+            	return "54|2";
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+    	return "54|2";
+    } 
+    
+    
+    //[메일삭제] DeleteMail
+    public String DeleteMail(String DesAddress, String Title) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        int result = 0;
+        try {
+            con = getConn();
+            String sql = "delete from ST_EMAIL where ST_EMAIL_DES=? and ST_EMAIL_TITLE=?";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, DesAddress);
+            ps.setString(2, Title);
+            result = ps.executeUpdate();
+            if(result != 1){ //실패했을경우
+            	return "58|2|"+DesAddress+"|"+Title;
+            }else{ //메일삭제가 성공했을 경우
+            	return "58|1|"+DesAddress+"|"+Title;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+    	return "58|2|"+DesAddress+"|"+Title;
+    } 
+    
+    //[블랙리스트 업데이트(추가)] BlackListUpdateInto
+    public String BlackListUpdateInto(String userId) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        int result = 0;
+        try {
+            con = getConn();
+            String sql = "insert into ST_BLACKLIST"
+                    + "(ST_BLACKLIST_SEQ, ST_BLACKLIST_ID) "
+                    + "values(ST_BLACKLIST_SEQ.nextval,?)";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, userId);
+            result = ps.executeUpdate();
+            if(result != 1){ //이미 등록되었을 경우
+            	return "106|2|"+userId;
+            }else{ //블랙리스트 추가에 성공했을 경우
+            	return "106|1|"+userId;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+		return "106|2|"+userId;
+    } 
+
+    //[블랙리스트 업데이트(삭제)] BlackListUpdateDelete
+    public String BlackListUpdateDelete(String userId) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        int result = 0;
+        try {
+            con = getConn();
+            String sql = "delete from ST_BLACKLIST where ST_BLACKLIST_ID=?";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, userId);
+            result = ps.executeUpdate();
+            if(result != 1){ //실패했을경우
+            	return "106|4|"+userId;
+            }else{ //블랙리스트 삭제에 성공했을 경우
+            	return "106|3|"+userId;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+    	return "106|4|"+userId;
+    } 
+    
+    //[블랙리스트 업데이트(리스트)] BlackListUpdateList
+    public String BlackListUpdateList() {
+        Connection con = null;
+        PreparedStatement ps = null;
+        String ListTemp = "";
+        ResultSet rs = null;
+        try {
+            con = getConn();
+            String sql = "select * from ST_BLACKLIST";
+            ps = con.prepareStatement(sql);
+            rs = ps.executeQuery();
+            while(rs.next()) { //블랙리스트가 존재할 경우
+            	ListTemp += "["+rs.getString("ST_BLACKLIST_ID")+"]";
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+    	return ListTemp;
+    } 
+
+    //[로그인 시 블랙리스트 체크)] BlackListCheck
+    public int BlackListCheck(String userId) {
+        Connection con = null;
+        PreparedStatement ps = null;
+        String ListTemp = "";
+        ResultSet rs = null;
+        int check = 0;
+        try {
+            con = getConn();
+            String sql = "select * from ST_BLACKLIST where ST_BLACKLIST_ID=?";
+            ps = con.prepareStatement(sql);
+            ps.setString(1, userId);
+            rs = ps.executeQuery();
+            if(rs.next()) { //블랙리스트가 존재할 경우
+            	check = 1;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (ps != null) {
+                try {ps.close();} catch (SQLException e2) {e2.printStackTrace();} 
+            }
+            if (con != null) {
+                try {con.close();} catch (SQLException e2) {e2.printStackTrace();}
+            } 
+        }
+    	return check;
+    } 
+}
+
+
